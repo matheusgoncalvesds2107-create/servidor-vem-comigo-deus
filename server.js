@@ -15,25 +15,27 @@ let running = false;
 
 function refreshFiles() {
   try {
-    files = fs.readdirSync(AUDIO_DIR)
-      .filter(f => /\.(mp3|aac|m4a)$/i.test(f))
+    files = fs
+      .readdirSync(AUDIO_DIR)
+      .filter((f) => /\.(mp3|aac|m4a)$/i.test(f))
       .sort();
   } catch {
     files = [];
   }
 }
+
 refreshFiles();
 
 function sendChunk(chunk) {
   for (const res of [...clients]) {
     try {
-      const ok = res.write(chunk);
-      if (!ok) {
-        // backpressure is acceptable for this test; client keeps receiving as buffer drains
-      }
+      res.write(chunk);
     } catch {
       clients.delete(res);
-      try { res.end(); } catch {}
+
+      try {
+        res.end();
+      } catch {}
     }
   }
 }
@@ -41,41 +43,78 @@ function sendChunk(chunk) {
 async function playFile(file) {
   return new Promise((resolve) => {
     currentTrack = file;
-    const stream = fs.createReadStream(path.join(AUDIO_DIR, file), {
-      highWaterMark: 32 * 1024
-    });
 
-    // Throttle roughly like a 192kbps MP3 stream.
-    // This avoids dumping the whole file instantly to clients.
-    const bytesPerSecond = 24_000; // ~192 kbps
+    const stream = fs.createReadStream(
+      path.join(AUDIO_DIR, file),
+      {
+        highWaterMark: 32 * 1024
+      }
+    );
+
+    // Aproximadamente 192 kbps
+    const bytesPerSecond = 24000;
     const tickMs = 250;
-    const targetPerTick = Math.floor(bytesPerSecond * (tickMs / 1000));
+
+    const targetPerTick = Math.floor(
+      bytesPerSecond * (tickMs / 1000)
+    );
 
     let buffer = Buffer.alloc(0);
     let ended = false;
 
-    stream.on("data", chunk => {
-      buffer = Buffer.concat([buffer, chunk]);
+    stream.on("data", (chunk) => {
+      buffer = Buffer.concat([
+        buffer,
+        chunk
+      ]);
+
       stream.pause();
     });
 
-    stream.on("end", () => { ended = true; });
-    stream.on("error", () => { ended = true; });
+    stream.on("end", () => {
+      ended = true;
+    });
+
+    stream.on("error", (err) => {
+      console.error(
+        "Erro ao ler áudio:",
+        err.message
+      );
+
+      ended = true;
+    });
 
     const timer = setInterval(() => {
       if (buffer.length > 0) {
-        const amount = Math.min(targetPerTick, buffer.length);
-        const piece = buffer.subarray(0, amount);
+        const amount = Math.min(
+          targetPerTick,
+          buffer.length
+        );
+
+        const piece = buffer.subarray(
+          0,
+          amount
+        );
+
         buffer = buffer.subarray(amount);
+
         sendChunk(piece);
       }
 
-      if (!ended && buffer.length < targetPerTick * 2) {
+      if (
+        !ended &&
+        buffer.length <
+          targetPerTick * 2
+      ) {
         stream.resume();
       }
 
-      if (ended && buffer.length === 0) {
+      if (
+        ended &&
+        buffer.length === 0
+      ) {
         clearInterval(timer);
+
         resolve();
       }
     }, tickMs);
@@ -83,7 +122,10 @@ async function playFile(file) {
 }
 
 async function broadcastLoop() {
-  if (running) return;
+  if (running) {
+    return;
+  }
+
   running = true;
 
   while (true) {
@@ -91,80 +133,359 @@ async function broadcastLoop() {
 
     if (!files.length) {
       currentTrack = null;
-      await new Promise(r => setTimeout(r, 3000));
+
+      await new Promise((r) =>
+        setTimeout(r, 3000)
+      );
+
       continue;
     }
 
-    if (currentIndex >= files.length) currentIndex = 0;
-    const file = files[currentIndex];
+    if (
+      currentIndex >= files.length
+    ) {
+      currentIndex = 0;
+    }
+
+    const file =
+      files[currentIndex];
+
     await playFile(file);
-    currentIndex = (currentIndex + 1) % files.length;
+
+    currentIndex =
+      (currentIndex + 1) %
+      files.length;
   }
 }
 
 broadcastLoop();
 
-const server = http.createServer((req, res) => {
-  if (req.url === "/health") {
-    res.writeHead(200, {"Content-Type":"application/json; charset=utf-8"});
-    return res.end(JSON.stringify({
-      ok: true,
-      service: "Servidor Próprio Vem Comigo Deus",
-      listeners: clients.size,
-      currentTrack,
-      files: files.length
-    }));
-  }
+const server = http.createServer(
+  (req, res) => {
+    const parsed = new URL(
+      req.url || "/",
+      `http://${
+        req.headers.host ||
+        "localhost"
+      }`
+    );
 
-  if (req.url === "/status") {
-    res.writeHead(200, {"Content-Type":"application/json; charset=utf-8"});
-    return res.end(JSON.stringify({
-      onAir: files.length > 0,
-      listeners: clients.size,
-      currentTrack,
-      playlist: files
-    }));
-  }
+    let pathname =
+      decodeURIComponent(
+        parsed.pathname
+      );
 
-  if (req.url === "/radio" || req.url === "/radio.mp3") {
-    res.writeHead(200, {
-      "Content-Type": "audio/mpeg",
-      "Cache-Control": "no-store, no-cache, must-revalidate",
-      "Connection": "keep-alive",
-      "Access-Control-Allow-Origin": "*",
-      "icy-name": "Web Rádio Vem Comigo Deus",
-      "icy-genre": "Gospel",
-      "icy-description": "Louvor, Palavra e Fé 24 horas"
-    });
+    // Remove barra final
+    if (
+      pathname.length > 1 &&
+      pathname.endsWith("/")
+    ) {
+      pathname =
+        pathname.slice(0, -1);
+    }
 
-    clients.add(res);
+    console.log(
+      req.method,
+      pathname
+    );
 
-    req.on("close", () => {
-      clients.delete(res);
-      try { res.end(); } catch {}
-    });
+    // CORS
+    res.setHeader(
+      "Access-Control-Allow-Origin",
+      "*"
+    );
 
-    return;
-  }
+    res.setHeader(
+      "Access-Control-Allow-Methods",
+      "GET,HEAD,OPTIONS"
+    );
 
-  res.writeHead(200, {"Content-Type":"text/html; charset=utf-8"});
-  res.end(`<!doctype html>
-<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Servidor Vem Comigo Deus</title>
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "*"
+    );
+
+    if (
+      req.method === "OPTIONS"
+    ) {
+      res.writeHead(204);
+
+      return res.end();
+    }
+
+    // HEALTH
+    if (
+      pathname === "/health"
+    ) {
+      res.writeHead(
+        200,
+        {
+          "Content-Type":
+            "application/json; charset=utf-8",
+
+          "Cache-Control":
+            "no-store"
+        }
+      );
+
+      return res.end(
+        JSON.stringify({
+          ok: true,
+
+          service:
+            "Servidor Próprio Vem Comigo Deus",
+
+          listeners:
+            clients.size,
+
+          currentTrack,
+
+          files:
+            files.length,
+
+          routes: [
+            "/",
+            "/health",
+            "/status",
+            "/radio",
+            "/radio.mp3"
+          ]
+        })
+      );
+    }
+
+    // STATUS
+    if (
+      pathname === "/status"
+    ) {
+      res.writeHead(
+        200,
+        {
+          "Content-Type":
+            "application/json; charset=utf-8",
+
+          "Cache-Control":
+            "no-store"
+        }
+      );
+
+      return res.end(
+        JSON.stringify({
+          onAir:
+            files.length > 0,
+
+          listeners:
+            clients.size,
+
+          currentTrack,
+
+          playlist:
+            files
+        })
+      );
+    }
+
+    // STREAM
+    if (
+      pathname === "/radio" ||
+      pathname === "/radio.mp3" ||
+      pathname.startsWith(
+        "/radio."
+      )
+    ) {
+      res.writeHead(
+        200,
+        {
+          "Content-Type":
+            "audio/mpeg",
+
+          "Cache-Control":
+            "no-store, no-cache, must-revalidate",
+
+          "Connection":
+            "keep-alive",
+
+          "Access-Control-Allow-Origin":
+            "*",
+
+          "icy-name":
+            "Web Rádio Vem Comigo Deus",
+
+          "icy-genre":
+            "Gospel",
+
+          "icy-description":
+            "Louvor, Palavra e Fé 24 horas"
+        }
+      );
+
+      if (
+        req.method === "HEAD"
+      ) {
+        return res.end();
+      }
+
+      clients.add(res);
+
+      req.on(
+        "close",
+        () => {
+          clients.delete(res);
+
+          try {
+            res.end();
+          } catch {}
+        }
+      );
+
+      return;
+    }
+
+    // PÁGINA PRINCIPAL
+    if (
+      pathname === "/"
+    ) {
+      res.writeHead(
+        200,
+        {
+          "Content-Type":
+            "text/html; charset=utf-8",
+
+          "Cache-Control":
+            "no-store"
+        }
+      );
+
+      return res.end(`
+<!doctype html>
+
+<html lang="pt-BR">
+
+<head>
+
+<meta charset="utf-8">
+
+<meta
+name="viewport"
+content="width=device-width,initial-scale=1">
+
+<title>
+Servidor Vem Comigo Deus
+</title>
+
 <style>
-body{font-family:Arial;background:#071a33;color:#fff;display:grid;place-items:center;min-height:100vh;margin:0}
-.card{width:min(92vw,430px);background:#0e2a4e;border:1px solid #F9B80055;border-radius:20px;padding:24px;text-align:center}
-h1{color:#F9B800}.play{font-size:20px;padding:14px 24px;border:0;border-radius:999px;background:#F9B800;color:#071a33;font-weight:800}
-a{color:#FFD600}
-</style></head><body><div class="card">
-<h1>Web Rádio Vem Comigo Deus</h1>
-<p>Servidor próprio de teste no Render</p>
-<audio controls src="/radio.mp3" style="width:100%"></audio>
-<p><a href="/health">Ver status</a></p>
-</div></body></html>`);
-});
 
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Servidor Vem Comigo Deus ativo em 0.0.0.0:${PORT}`);
-  console.log(`Arquivos de áudio: ${files.length}`);
-});
+body {
+  font-family: Arial, sans-serif;
+  background: #071a33;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  margin: 0;
+}
+
+.card {
+  width: min(92vw, 430px);
+  background: #0e2a4e;
+  border: 1px solid #F9B80055;
+  border-radius: 20px;
+  padding: 24px;
+  text-align: center;
+}
+
+h1 {
+  color: #F9B800;
+}
+
+audio {
+  width: 100%;
+  margin: 16px 0;
+}
+
+a {
+  color: #FFD600;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="card">
+
+<h1>
+Web Rádio Vem Comigo Deus
+</h1>
+
+<p>
+Servidor próprio de teste no Render
+</p>
+
+<audio
+controls
+preload="none"
+src="/radio.mp3">
+</audio>
+
+<p>
+
+<a href="/health">
+Ver status
+</a>
+
+</p>
+
+</div>
+
+</body>
+
+</html>
+`);
+    }
+
+    // 404
+    res.writeHead(
+      404,
+      {
+        "Content-Type":
+          "application/json; charset=utf-8"
+      }
+    );
+
+    return res.end(
+      JSON.stringify({
+        ok: false,
+
+        error:
+          "Rota não encontrada",
+
+        path:
+          pathname,
+
+        routes: [
+          "/",
+          "/health",
+          "/status",
+          "/radio",
+          "/radio.mp3"
+        ]
+      })
+    );
+  }
+);
+
+server.listen(
+  PORT,
+  "0.0.0.0",
+  () => {
+    console.log(
+      `Servidor Vem Comigo Deus ativo na porta ${PORT}`
+    );
+
+    console.log(
+      `Arquivos encontrados: ${files.length}`
+    );
+  }
+);
