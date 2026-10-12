@@ -7,11 +7,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const AUDIO_DIR = path.join(__dirname, "audio");
 const PORT = Number(process.env.PORT || 10000);
 
-let clients = new Set();
+let listeners = new Set();
 let files = [];
 let currentIndex = 0;
 let currentTrack = null;
-let running = false;
+let fallbackRunning = false;
+
+let liveSourceActive = false;
+let liveSourceReq = null;
+let liveSourceSince = null;
 
 function refreshFiles() {
   try {
@@ -26,12 +30,12 @@ function refreshFiles() {
 
 refreshFiles();
 
-function sendChunk(chunk) {
-  for (const res of [...clients]) {
+function broadcast(chunk) {
+  for (const res of [...listeners]) {
     try {
       res.write(chunk);
     } catch {
-      clients.delete(res);
+      listeners.delete(res);
 
       try {
         res.end();
@@ -40,7 +44,7 @@ function sendChunk(chunk) {
   }
 }
 
-async function playFile(file) {
+async function playFallbackFile(file) {
   return new Promise((resolve) => {
     currentTrack = file;
 
@@ -51,12 +55,11 @@ async function playFile(file) {
       }
     );
 
-    // Aproximadamente 192 kbps
     const bytesPerSecond = 24000;
     const tickMs = 250;
 
-    const targetPerTick = Math.floor(
-      bytesPerSecond * (tickMs / 1000)
+    const target = Math.floor(
+      (bytesPerSecond * tickMs) / 1000
     );
 
     let buffer = Buffer.alloc(0);
@@ -75,36 +78,37 @@ async function playFile(file) {
       ended = true;
     });
 
-    stream.on("error", (err) => {
-      console.error(
-        "Erro ao ler áudio:",
-        err.message
-      );
-
+    stream.on("error", () => {
       ended = true;
     });
 
     const timer = setInterval(() => {
       if (buffer.length > 0) {
         const amount = Math.min(
-          targetPerTick,
+          target,
           buffer.length
         );
 
-        const piece = buffer.subarray(
-          0,
-          amount
-        );
+        const piece =
+          buffer.subarray(
+            0,
+            amount
+          );
 
-        buffer = buffer.subarray(amount);
+        buffer =
+          buffer.subarray(
+            amount
+          );
 
-        sendChunk(piece);
+        if (!liveSourceActive) {
+          broadcast(piece);
+        }
       }
 
       if (
         !ended &&
         buffer.length <
-          targetPerTick * 2
+          target * 2
       ) {
         stream.resume();
       }
@@ -121,18 +125,20 @@ async function playFile(file) {
   });
 }
 
-async function broadcastLoop() {
-  if (running) {
+async function fallbackLoop() {
+  if (fallbackRunning) {
     return;
   }
 
-  running = true;
+  fallbackRunning = true;
 
   while (true) {
     refreshFiles();
 
     if (!files.length) {
-      currentTrack = null;
+      if (!liveSourceActive) {
+        currentTrack = null;
+      }
 
       await new Promise((r) =>
         setTimeout(r, 3000)
@@ -147,10 +153,9 @@ async function broadcastLoop() {
       currentIndex = 0;
     }
 
-    const file =
-      files[currentIndex];
-
-    await playFile(file);
+    await playFallbackFile(
+      files[currentIndex]
+    );
 
     currentIndex =
       (currentIndex + 1) %
@@ -158,11 +163,28 @@ async function broadcastLoop() {
   }
 }
 
-broadcastLoop();
+fallbackLoop();
+
+function setCors(res) {
+  res.setHeader(
+    "Access-Control-Allow-Origin",
+    "*"
+  );
+
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET,HEAD,PUT,POST,OPTIONS"
+  );
+
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "*"
+  );
+}
 
 const server = http.createServer(
   (req, res) => {
-    const parsed = new URL(
+    const u = new URL(
       req.url || "/",
       `http://${
         req.headers.host ||
@@ -172,10 +194,9 @@ const server = http.createServer(
 
     let pathname =
       decodeURIComponent(
-        parsed.pathname
+        u.pathname
       );
 
-    // Remove barra final
     if (
       pathname.length > 1 &&
       pathname.endsWith("/")
@@ -184,26 +205,7 @@ const server = http.createServer(
         pathname.slice(0, -1);
     }
 
-    console.log(
-      req.method,
-      pathname
-    );
-
-    // CORS
-    res.setHeader(
-      "Access-Control-Allow-Origin",
-      "*"
-    );
-
-    res.setHeader(
-      "Access-Control-Allow-Methods",
-      "GET,HEAD,OPTIONS"
-    );
-
-    res.setHeader(
-      "Access-Control-Allow-Headers",
-      "*"
-    );
+    setCors(res);
 
     if (
       req.method === "OPTIONS"
@@ -213,7 +215,10 @@ const server = http.createServer(
       return res.end();
     }
 
+    // ==================================
     // HEALTH
+    // ==================================
+
     if (
       pathname === "/health"
     ) {
@@ -233,12 +238,25 @@ const server = http.createServer(
           ok: true,
 
           service:
-            "Servidor Próprio Vem Comigo Deus",
+            "Servidor Próprio Vem Comigo Deus v2",
 
           listeners:
-            clients.size,
+            listeners.size,
 
-          currentTrack,
+          onAir:
+            liveSourceActive ||
+            files.length > 0,
+
+          sourceConnected:
+            liveSourceActive,
+
+          sourceSince:
+            liveSourceSince,
+
+          currentTrack:
+            liveSourceActive
+              ? "Painel Web Rádio • AO VIVO"
+              : currentTrack,
 
           files:
             files.length,
@@ -248,13 +266,17 @@ const server = http.createServer(
             "/health",
             "/status",
             "/radio",
-            "/radio.mp3"
+            "/radio.mp3",
+            "/source"
           ]
         })
       );
     }
 
+    // ==================================
     // STATUS
+    // ==================================
+
     if (
       pathname === "/status"
     ) {
@@ -272,12 +294,19 @@ const server = http.createServer(
       return res.end(
         JSON.stringify({
           onAir:
+            liveSourceActive ||
             files.length > 0,
 
-          listeners:
-            clients.size,
+          sourceConnected:
+            liveSourceActive,
 
-          currentTrack,
+          listeners:
+            listeners.size,
+
+          currentTrack:
+            liveSourceActive
+              ? "Painel Web Rádio • AO VIVO"
+              : currentTrack,
 
           playlist:
             files
@@ -285,7 +314,112 @@ const server = http.createServer(
       );
     }
 
-    // STREAM
+    // ==================================
+    // SOURCE
+    // ÁUDIO VINDO DO PAINEL
+    // ==================================
+
+    if (
+      pathname === "/source" &&
+      (
+        req.method === "PUT" ||
+        req.method === "POST"
+      )
+    ) {
+      if (
+        liveSourceReq &&
+        liveSourceReq !== req
+      ) {
+        try {
+          liveSourceReq.destroy();
+        } catch {}
+      }
+
+      liveSourceActive = true;
+      liveSourceReq = req;
+
+      liveSourceSince =
+        new Date()
+          .toISOString();
+
+      currentTrack =
+        "Painel Web Rádio • AO VIVO";
+
+      console.log(
+        "SOURCE conectado:",
+        req.socket.remoteAddress
+      );
+
+      res.writeHead(
+        200,
+        {
+          "Content-Type":
+            "text/plain; charset=utf-8",
+
+          "Cache-Control":
+            "no-store",
+
+          "Connection":
+            "keep-alive"
+        }
+      );
+
+      res.write(
+        "SOURCE OK\n"
+      );
+
+      req.on(
+        "data",
+        (chunk) => {
+          if (
+            liveSourceActive &&
+            chunk?.length
+          ) {
+            broadcast(chunk);
+          }
+        }
+      );
+
+      const closeSource = () => {
+        if (
+          liveSourceReq === req
+        ) {
+          liveSourceActive = false;
+          liveSourceReq = null;
+          liveSourceSince = null;
+
+          console.log(
+            "SOURCE desconectado; voltando ao fallback."
+          );
+        }
+
+        try {
+          res.end();
+        } catch {}
+      };
+
+      req.on(
+        "end",
+        closeSource
+      );
+
+      req.on(
+        "close",
+        closeSource
+      );
+
+      req.on(
+        "error",
+        closeSource
+      );
+
+      return;
+    }
+
+    // ==================================
+    // STREAM PÚBLICO
+    // ==================================
+
     if (
       pathname === "/radio" ||
       pathname === "/radio.mp3" ||
@@ -325,12 +459,12 @@ const server = http.createServer(
         return res.end();
       }
 
-      clients.add(res);
+      listeners.add(res);
 
       req.on(
         "close",
         () => {
-          clients.delete(res);
+          listeners.delete(res);
 
           try {
             res.end();
@@ -341,7 +475,10 @@ const server = http.createServer(
       return;
     }
 
+    // ==================================
     // PÁGINA PRINCIPAL
+    // ==================================
+
     if (
       pathname === "/"
     ) {
@@ -370,41 +507,61 @@ name="viewport"
 content="width=device-width,initial-scale=1">
 
 <title>
-Servidor Vem Comigo Deus
+Web Rádio Vem Comigo Deus
 </title>
 
 <style>
 
 body {
-  font-family: Arial, sans-serif;
+  font-family: Arial;
   background: #071a33;
   color: #fff;
+
   display: grid;
   place-items: center;
+
   min-height: 100vh;
   margin: 0;
 }
 
 .card {
-  width: min(92vw, 430px);
+  width: min(
+    92vw,
+    440px
+  );
+
   background: #0e2a4e;
-  border: 1px solid #F9B80055;
-  border-radius: 20px;
-  padding: 24px;
-  text-align: center;
+
+  border:
+    1px solid
+    #F9B80055;
+
+  border-radius:
+    20px;
+
+  padding:
+    24px;
+
+  text-align:
+    center;
 }
 
 h1 {
-  color: #F9B800;
+  color:
+    #F9B800;
 }
 
 audio {
-  width: 100%;
-  margin: 16px 0;
+  width:
+    100%;
+
+  margin:
+    16px 0;
 }
 
 a {
-  color: #FFD600;
+  color:
+    #FFD600;
 }
 
 </style>
@@ -416,11 +573,13 @@ a {
 <div class="card">
 
 <h1>
-Web Rádio Vem Comigo Deus
+Web Rádio
+Vem Comigo Deus
 </h1>
 
 <p>
-Servidor próprio de teste no Render
+Servidor próprio
+Render v2
 </p>
 
 <audio
@@ -442,10 +601,13 @@ Ver status
 </body>
 
 </html>
-`);
+      `);
     }
 
+    // ==================================
     // 404
+    // ==================================
+
     res.writeHead(
       404,
       {
@@ -469,7 +631,8 @@ Ver status
           "/health",
           "/status",
           "/radio",
-          "/radio.mp3"
+          "/radio.mp3",
+          "/source"
         ]
       })
     );
@@ -481,11 +644,11 @@ server.listen(
   "0.0.0.0",
   () => {
     console.log(
-      `Servidor Vem Comigo Deus ativo na porta ${PORT}`
+      `Servidor Vem Comigo Deus v2 ativo na porta ${PORT}`
     );
 
     console.log(
-      `Arquivos encontrados: ${files.length}`
+      `Arquivos de fallback: ${files.length}`
     );
   }
 );
