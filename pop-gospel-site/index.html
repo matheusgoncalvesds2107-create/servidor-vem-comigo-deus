@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#10091e">
+  <meta name="description" content="Radio Pop Gospel — fé, música e esperança. Louvor que toca o coração.">
+  <title>Radio Pop Gospel | Fé • Música • Esperança</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/pop-gospel/style.css?v=20261101-3">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/pop-gospel/" aria-label="Radio Pop Gospel — início">
+      <span class="brand-icon" aria-hidden="true">♫</span>
+      <span class="brand-copy">
+        <strong>RADIO POP GOSPEL</strong>
+        <small>FÉ <i>•</i> MÚSICA <i>•</i> ESPERANÇA</small>
+      </span>
+    </a>
+  </header>
+
+  <main>
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <div class="eyebrow"><span class="eyebrow-dot"></span>SUA ESTAÇÃO DE LOUVOR</div>
+        <h1 id="hero-title">Uma nova vibe.<br><em>A mesma fé.</em></h1>
+        <p id="tagline" class="tagline">Louvor que toca o coração</p>
+        <div class="partner">
+          <span class="partner-mark" aria-hidden="true">♫</span>
+          <span>Uma rádio parceira da <strong>Web Rádio Vem Comigo Deus</strong></span>
+        </div>
+        <div class="hero-note"><span>✦</span> Uma programação feita para fortalecer sua fé.</div>
+      </div>
+
+      <section class="player-card" aria-label="Player da Radio Pop Gospel">
+        <div class="player-topline">
+          <span class="station-chip"><span class="live-dot"></span><span id="status">PLAYER ONLINE • PLAYLISTS</span></span>
+          <span class="equalizer" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+        </div>
+
+        <div class="album-area">
+          <div class="disc-glow"></div>
+          <div class="disc" aria-hidden="true"><div class="disc-center">♫</div></div>
+          <div class="orbit orbit-one"></div>
+          <div class="orbit orbit-two"></div>
+        </div>
+
+        <div class="now-playing-label">TOCANDO AGORA</div>
+        <h2 id="track-title">Escolha uma música</h2>
+        <p id="track-artist">A programação começa aqui</p>
+
+        <audio id="audio" preload="metadata"></audio>
+
+        <div class="player-controls">
+          <button id="prev" class="control-btn" type="button" aria-label="Faixa anterior" title="Faixa anterior">⏮</button>
+          <button id="play" class="play-btn" type="button" aria-label="Reproduzir" title="Reproduzir">▶</button>
+          <button id="next" class="control-btn" type="button" aria-label="Próxima faixa" title="Próxima faixa">⏭</button>
+        </div>
+
+        <div class="progress-row">
+          <span id="elapsed">0:00</span>
+          <input id="seek" type="range" min="0" max="100" value="0" step="0.1" aria-label="Posição da música" disabled>
+          <span id="duration">0:00</span>
+        </div>
+        <div class="volume-row">
+          <span aria-hidden="true">🔊</span>
+          <input id="volume" type="range" min="0" max="1" step="0.05" value="0.8" aria-label="Volume">
+          <span class="volume-caption">VOLUME</span>
+        </div>
+        <p id="player-message" class="player-message" role="status" aria-live="polite"></p>
+      </section>
+    </section>
+
+    <section class="tracks-section" aria-labelledby="tracks-title">
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow section-eyebrow">NO SEU RITMO</div>
+          <h2 id="tracks-title">Ouça agora</h2>
+          <p>Escolha sua playlist e deixe a música falar ao coração.</p>
+        </div>
+        <label class="playlist-picker">
+          <span>PLAYLIST</span>
+          <select id="playlist-select" aria-label="Escolher playlist">
+            <option value="all">Todas as músicas</option>
+          </select>
+        </label>
+      </div>
+      <div id="tracks" class="tracks" aria-live="polite">
+        <div class="loading-state"><span class="loader"></span><p>Carregando a programação...</p></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="footer-brand"><span>♫</span> RADIO POP GOSPEL</div>
+    <p>Uma parceria da Web Rádio Vem Comigo Deus</p>
+    <small>Transmitindo fé através da música.</small>
+  </footer>
+
+  <script src="/pop-gospel/app.js?v=20261101-3" defer></script>
+</body>
+</html>

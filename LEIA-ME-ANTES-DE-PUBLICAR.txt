@@ -1,0 +1,36 @@
+ATUALIZACAO DO SERVIDOR EXISTENTE — RADIO POP GOSPEL
+
+Repositorio: matheusgoncalvesds2107-create/servidor-vem-comigo-deus
+
+ESTE PACOTE NAO FOI PUBLICADO AUTOMATICAMENTE.
+A conexao GitHub disponivel para esta conversa permite leitura, mas nao autorizou escrita no repositorio. Use estes arquivos para atualizar o repositorio pela interface do GitHub; se o Render estiver ligado ao repositorio com Auto-Deploy, ele iniciara o deploy apos o commit.
+
+ARQUIVOS:
+- server.js: substitui o server.js atual
+- pop-gospel-addon.js: novo arquivo na raiz
+- pop-gospel-site/index.html, app.js, style.css: novos arquivos do site Pop Gospel
+
+ANTES DE ALTERAR:
+1. Baixe uma copia ZIP do repositorio atual como backup.
+2. No GitHub, substitua server.js e adicione os demais arquivos nos caminhos indicados.
+3. Faca commit na branch main.
+4. No Render, abra o servico servidor-vem-comigo-deus e confira o resultado do deploy.
+
+VARIAVEIS DO RENDER:
+POP_GOSPEL_PANEL_TOKEN = segredo longo e aleatorio
+POP_GOSPEL_DATA_DIR = /var/data/pop-gospel
+
+DISCO:
+Confirme que o servico tem um Persistent Disk montado em /var/data antes de usar esse caminho. Sem disco persistente, os arquivos enviados podem desaparecer em reinicializacoes ou deploys. O disco pode ter custo adicional.
+
+ENDERECOS PREVISTOS:
+Radio principal: /radio.mp3
+Radio Pop Gospel: /pop-gospel/radio.mp3
+Site Pop Gospel: /pop-gospel/
+Saude Pop Gospel: /pop-gospel/api/health
+
+SEGURANCA:
+Nao publique POP_GOSPEL_PANEL_TOKEN no GitHub, no site publico ou em mensagens. Configure-o somente nas variaveis do Render e no painel autorizado.
+
+VALIDACAO:
+Este pacote contem os arquivos de integracao preparados. A publicacao no GitHub/Render e a verificacao final da transmissao ao vivo ainda precisam ser feitas.
