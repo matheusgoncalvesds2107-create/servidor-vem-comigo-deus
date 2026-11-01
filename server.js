@@ -5,10 +5,12 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
+import { createPopGospelAddon } from "./pop-gospel-addon.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const AUDIO_DIR = path.join(ROOT, "audio");
 const PANEL_FILE = path.join(ROOT, "painel-v4.html");
+const popGospel = createPopGospelAddon({ root: ROOT });
 
 const PORT = Number(process.env.PORT || 10000);
 const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || "");
@@ -308,6 +310,11 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || "/", "http://localhost");
     const route = url.pathname.replace(/\/+$/, "") || "/";
 
+    if (route === "/pop-gospel" || route.startsWith("/pop-gospel/")) {
+      await popGospel.handleRequest(req, res, route);
+      return;
+    }
+
     if (route === "/health" || route === "/status") {
       return send(res, 200, statusObject());
     }
@@ -316,7 +323,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const password = new URLSearchParams(body).get("password") || "";
 
-      if (!ADMIN_PASSWORD) {
+    if (!ADMIN_PASSWORD) {
         return send(res, 500, "Configure ADMIN_PASSWORD no Render.", "text/plain");
       }
 
@@ -346,9 +353,9 @@ const server = http.createServer(async (req, res) => {
       }
 
       try {
-        const html = fs.readFileSync(PANEL_FILE, "utf8");
+        const html = fs.readFileSync(PANEL_FILE, 'utf8');
         return send(res, 200, html, "text/html");
-      } catch {
+      } catch { 
         return send(res, 404,
           "Arquivo painel-v4.html não encontrado no GitHub.",
           "text/plain");
@@ -388,7 +395,7 @@ const server = http.createServer(async (req, res) => {
           : 0;
         skipVersion++;
       } else {
-        return send(res, 400, { ok: false, error: "Ação inválida" });
+        return send(res, 400, { ok: false, error: "Acção inválida" });
       }
 
       return send(res, 200, statusObject());
@@ -452,6 +459,8 @@ const wss = new WebSocketServer({
 server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url || "/", "http://localhost");
 
+  if (popGospel.handleUpgrade(req, socket, head)) return;
+
   if (url.pathname !== "/source-ws") {
     socket.destroy();
     return;
@@ -501,6 +510,7 @@ server.headersTimeout = 125000;
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log("Web Rádio Vem Comigo Deus 4.0 na porta " + PORT);
+  popGospel.start();
 });
 
 fallbackLoop().catch(console.error);
